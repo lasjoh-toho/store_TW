@@ -1,0 +1,22 @@
+title: $:/plugins/storephp/chunked-upload/readme
+
+Dieses Plugin speichert das Wiki über ''store.php 2.1'' komprimiert und in kleinen Stücken. So klappt das Speichern auch dann, wenn der Provider große Uploads ablehnt („413 Request Entity Too Large“).
+
+Ab dem zweiten Speichern (bzw. schon beim ersten, wenn die Seite direkt vom Server geladen wurde) schickt es nur die geänderten Tiddler. store.php baut sie in die Datei ein und prüft per Prüfsumme, dass das Ergebnis exakt dem Wiki im Browser entspricht. Passt etwas nicht, etwa weil sich Plugins oder der Rahmen der Seite geändert haben, wird automatisch das ganze Wiki geschickt.
+
+!! Einrichtung
+
+Es nutzt die Einstellungen des eingebauten Upload-Savers: ''Kontrollpanel → Speichern → TiddlySpot/Upload''
+
+* Server-URL: `https://deine-domain/wiki/store.php`
+* Benutzername und Passwort wie in `auth.php`
+* Dateiname, Upload-Verzeichnis, Backup-Verzeichnis wie gewohnt
+
+Ist keine Server-URL, kein Benutzername oder kein Passwort gesetzt, ist das Plugin inaktiv und TiddlyWiki speichert wie bisher.
+
+!! Optionen
+
+<$checkbox tiddler="$:/config/storephp/chunked-upload/enabled" field="text" checked="yes" unchecked="no" default="yes"> Speichern in Stücken verwenden</$checkbox>
+
+
+<$checkbox tiddler="$:/config/storephp/chunked-upload/delta" field="text" checked="yes" unchecked="no" default="yes"> Nur geänderte Tiddler schicken, wenn möglich</$checkbox>

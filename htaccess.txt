@@ -1,0 +1,33 @@
+# Als ".htaccess" in den Ordner mit store.php legen (Apache).
+
+# Verzeichnislisten abschalten
+Options -Indexes
+
+# auth.php, store-config.php und Sperrdateien nie direkt ausliefern
+<FilesMatch "^(auth|store-config)\.php$|\.(lock|tmp)$">
+    Require all denied
+</FilesMatch>
+
+# HTTP-Basic-Anmeldung an PHP durchreichen (nötig für den PUT-Saver und
+# $:/UploadWithUrlOnly, wenn PHP als CGI/FastCGI läuft)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+# Falls die Anmeldung trotzdem nicht ankommt, diese Zeile aktivieren:
+# CGIPassAuth On
+
+# Größere Wikis erlauben (Webserver-Grenze, greift noch vor PHP; Fehler
+# "413 Request Entity Too Large"). 104857600 = 100 MB.
+LimitRequestBody 104857600
+
+# PHP-Grenzen anheben – NUR wenn PHP als Apache-Modul läuft (sonst Fehler 500,
+# dann stattdessen die Datei user.ini.txt als .user.ini hochladen):
+# php_value upload_max_filesize 64M
+# php_value post_max_size 64M
+
+# Optional: Wiki unter schöner Adresse über store.php ausliefern,
+# damit der PUT-Saver funktioniert (Beispiel für index.html):
+# <IfModule mod_rewrite.c>
+#     RewriteRule ^wiki/?$ store.php?wiki=index.html [L,QSA]
+# </IfModule>

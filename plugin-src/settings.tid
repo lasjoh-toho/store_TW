@@ -1,0 +1,5 @@
+title: $:/plugins/storephp/chunked-upload/settings
+tags: $:/tags/ControlPanel/Saving
+caption: store.php (Stücke)
+
+{{$:/plugins/storephp/chunked-upload/readme}}

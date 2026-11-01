@@ -1,0 +1,4 @@
+; Als ".user.ini" in den Ordner mit store.php legen.
+; Hebt die PHP-Grenzen für hochgeladene Wikis an (wirkt oft erst nach ein paar Minuten).
+upload_max_filesize = 64M
+post_max_size = 64M

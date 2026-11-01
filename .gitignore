@@ -1,0 +1,8 @@
+# Server-side data that must never be committed
+auth.php
+store-config.php
+.store-chunks/
+backups/
+*.lock
+*.tmp
+__pycache__/
