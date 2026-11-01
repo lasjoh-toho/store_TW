@@ -1,15 +1,44 @@
 # store.php 2.1 – Installationsanleitung
 
 Speichert Single-File-TiddlyWikis auf Webspace, der nur PHP kann (kein Node.js).
-Läuft mit PHP 8.0 bis 8.4, getestet mit PHP 8.3 und TiddlyWiki 5.4.1.
+Läuft mit PHP 8.0 oder neuer (bitte eine gegen php2shell abgesicherte Version, siehe unten),
+getestet mit PHP 8.3 und TiddlyWiki 5.4.1.
 
-## Warum die alte Version nicht mehr ging
+## Warum TiddlyWiki nicht mehr speichert
 
-Seit PHP 8 erzeugt ein Zugriff auf ein fehlendes Array-Feld eine *Warning* statt einer *Notice*.
-Die alte store.php greift bei jedem Speichern auf solche Felder zu (`$options['debug']`,
-das leere Stück hinter `;;` usw.). Ist beim Provider `display_errors` an, steht diese Warnung
-vor der Erfolgsmeldung. TiddlyWiki erwartet, dass die Antwort mit `0 - ` beginnt, und meldet
-deshalb einen Fehler, obwohl die Datei evtl. sogar geschrieben wurde.
+Seit Herbst 2026 scheitert das Speichern mit der alten store.php bei vielen Providern,
+meist ganz ohne Fehlermeldung. Dafür gibt es drei Gründe, und sie kommen zusammen.
+
+**1. php2shell und die Reaktion der Provider.** Am 21. Oktober 2026 hat PHP Korrekturen für
+zwei kritische Lücken veröffentlicht, genannt *php2shell* (CVE-2026-109618,
+CVE-2026-109619). Eine präparierte Anfrage konnte PHP beim Einlesen überlasten und danach
+eigenen Code auf dem Server ausführen, ganz ohne Passwort. Abgesichert sind PHP 8.5.12,
+8.4.27, 8.3.36 und 8.2.35; PHP 8.1 und älter bekommt keine Korrektur mehr. Die Provider
+haben binnen eines Tages reagiert: PHP aktualisiert und Firewall-Regeln eingebaut (meist
+ModSecurity), die verdächtige, große oder ungewöhnlich aufgebaute Uploads abweisen. Manche
+haben auch die Upload-Grenzen gesenkt.
+
+**2. Der Upload von TiddlyWiki ist genau so eine Anfrage.** Der eingebaute Saver „upload“
+schickt das ganze Wiki (oft 10 MB und mehr) in einem einzigen POST, von Hand
+zusammengebaut, mit einer ungewöhnlichen zusätzlichen `Content-Length`-Zeile, die Zeichen
+statt Bytes zählt. Der Provider antwortet mit „413 Request Entity Too Large“ oder blockt die
+Anfrage, bevor PHP sie überhaupt sieht. TiddlyWiki reagiert nur auf Antworten mit Status 200,
+deshalb sieht man nur „Wiki zum Speichern vorbereiten“ und dann nichts mehr.
+
+**3. Die alte store.php selbst.** Seit PHP 8 erzeugt ein Zugriff auf ein fehlendes
+Array-Feld eine *Warning* statt einer *Notice*. Die alte store.php tut das bei jedem
+Speichern (`$options['debug']`, das leere Stück hinter `;;` usw.). Zeigt der Provider
+PHP-Fehler an, steht die Warnung vor der Erfolgsmeldung. TiddlyWiki erwartet, dass die
+Antwort mit `0 - ` beginnt, und meldet einen Fehler, obwohl die Datei evtl. geschrieben wurde.
+
+**Was dieses Projekt dagegen tut:** store.php 2.x läuft sauber unter aktuellem PHP, und das
+Plugin „Chunked Upload“ schickt das Wiki komprimiert, in normalen, vom Browser gebauten
+Uploads von höchstens 1 MB, und nach dem ersten Speichern nur noch die geänderten Tiddler.
+Das bleibt weit unter den neuen Grenzen. Achte darauf, dass dein Provider eine der
+abgesicherten PHP-Versionen verwendet.
+
+Quellen: [Hostinger: php2shell – what it is](https://www.hostinger.com/blog/what-is-php2shell/),
+[BigCloudy: php2shell security fixes](https://www.bigcloudy.com/blog/php2shell-security-fixes/)
 
 ## Dateien
 

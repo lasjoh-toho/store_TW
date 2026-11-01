@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * store.php 2.1 – speichert Single-File-TiddlyWikis auf reinen PHP-Webspaces.
  *
- * Nachfolger der BidiX store.php 1.6.1 (2007). Läuft mit PHP 8.0 bis 8.4 (getestet mit 8.3).
+ * Nachfolger der BidiX store.php 1.6.1 (2007). Läuft mit PHP 8.0 oder neuer (getestet mit 8.3).
  *
  * Unterstützte Wege zum Speichern:
  *

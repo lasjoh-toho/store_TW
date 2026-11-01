@@ -1,17 +1,44 @@
 # store.php 2.1 – Installation guide
 
 Saves single-file TiddlyWikis on web hosting that only offers PHP (no Node.js).
-Runs on PHP 8.0 to 8.4. Tested with PHP 8.3 and TiddlyWiki 5.4.1.
+Runs on PHP 8.0 or newer (use a version patched against php2shell, see below).
+Tested with PHP 8.3 and TiddlyWiki 5.4.1.
 
 Note: the messages and comments inside `store.php` are in German.
 
-## Why the old version stopped working
+## Why TiddlyWiki stopped saving
 
-Since PHP 8, reading a missing array key raises a *Warning* where it used to raise a *Notice*.
-The old store.php reads such keys on every save (`$options['debug']`, the empty piece after
-`;;`, and so on). When the host has `display_errors` switched on, the warning ends up in front
-of the success message. TiddlyWiki expects the reply to start with `0 - `, so it reports an
-error, even if the file may actually have been written.
+Since autumn 2026, saving a TiddlyWiki with the old store.php fails on many hosts, usually
+without any error message. There are three causes, and they add up.
+
+**1. php2shell and the hosts' reaction.** On 21 October 2026, PHP published fixes for two
+critical holes nicknamed *php2shell* (CVE-2026-109618, CVE-2026-109619). A crafted request
+could overwhelm PHP while it parses the request and then run the attacker's own code on the
+server, without any password. Patched versions are PHP 8.5.12, 8.4.27, 8.3.36 and 8.2.35;
+PHP 8.1 and older get no fix. Hosts reacted within a day: they updated PHP and added
+firewall rules (mostly ModSecurity) that block suspicious, large or malformed upload
+requests, and some lowered their upload limits.
+
+**2. TiddlyWiki's upload is exactly the kind of request these rules hit.** The built-in
+"upload" saver sends the whole wiki (often 10 MB or more) in one POST request, built by
+hand, with an unusual extra `Content-Length` line inside the form data that counts
+characters rather than bytes. The host answers with "413 Request Entity Too Large" or
+blocks the request before PHP ever sees it. TiddlyWiki only reacts to replies with status
+200, so all you see is "Starting to save" and then nothing.
+
+**3. The old store.php itself.** Since PHP 8, reading a missing array key raises a
+*Warning* where it used to raise a *Notice*. The old store.php does that on every save
+(`$options['debug']`, the empty piece after `;;`, and so on). If the host shows PHP errors,
+the warning ends up in front of the success message. TiddlyWiki expects the reply to start
+with `0 - `, so it reports an error, even if the file may have been written.
+
+**What this project does about it:** store.php 2.x runs cleanly on current PHP, and the
+"Chunked Upload" plugin sends the wiki compressed, in ordinary browser-built uploads of at
+most 1 MB, and after the first save only the changed tiddlers. That stays well below the
+new limits. Make sure your host runs one of the patched PHP versions.
+
+Sources: [Hostinger: php2shell – what it is](https://www.hostinger.com/blog/what-is-php2shell/),
+[BigCloudy: php2shell security fixes](https://www.bigcloudy.com/blog/php2shell-security-fixes/)
 
 ## Files
 
