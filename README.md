@@ -1,4 +1,4 @@
-# store.php 2.1 – Installation guide
+# store.php 2.2 – Installation guide
 
 Saves single-file TiddlyWikis on web hosting that only offers PHP (no Node.js).
 Runs on PHP 8.0 or newer (use a version patched against php2shell, see below).
@@ -34,7 +34,7 @@ with `0 - `, so it reports an error, even if the file may have been written.
 
 **What this project does about it:** store.php 2.x runs cleanly on current PHP, and the
 "Chunked Upload" plugin sends the wiki compressed, in ordinary browser-built uploads of at
-most 1 MB, and after the first save only the changed tiddlers. That stays well below the
+most 1 MB, and only the changed tiddlers. That stays well below the
 new limits. Make sure your host runs one of the patched PHP versions.
 
 Sources: [Hostinger: php2shell – what it is](https://www.hostinger.com/blog/what-is-php2shell/),
@@ -48,7 +48,7 @@ Sources: [Hostinger: php2shell – what it is](https://www.hostinger.com/blog/wh
 | `auth.example.php` | template for `auth.php` (users and password hashes) |
 | `htaccess.txt` | template for `.htaccess` (Apache) |
 | `user.ini.txt` | template for `.user.ini` (raises the PHP upload limits) |
-| `chunked-upload-plugin.json` | TiddlyWiki plugin: saves in pieces and sends only changes |
+| `chunked-upload-plugin.json` | TiddlyWiki plugin: saves in pieces and per tiddler, without overwriting other people's changes |
 | `plugin-src/` | plugin source code (`python3 plugin-src/build.py` rebuilds the JSON) |
 
 ## Installation
@@ -86,12 +86,15 @@ on, and `.htaccess` cannot change that. The plugin works around it:
 
 - It compresses the wiki and sends it in pieces of at most 1 MB. If the server rejects
   a piece, it automatically uses smaller ones.
-- From the second save on, it sends **only the changed tiddlers** (usually a few KB).
-  store.php merges them into the file and only saves if the result matches the wiki in
-  the browser byte for byte (checksum). If the page frame changed (e.g. a plugin update)
-  or the file on the server was changed elsewhere in the meantime, it automatically sends
-  the whole wiki. If the page was loaded straight from the server, this already works on
-  the first save.
+- It sends **only the tiddlers you changed, created or deleted** (usually a few KB).
+  store.php merges them into the *current* file on the server. Whatever others (a second
+  browser, another device, brausa) saved in the meantime is kept, and is then pulled into
+  your wiki automatically.
+- If two people changed the same tiddler at the same time, the server's version stays and
+  yours is added next to it as "Title (Konflikt date time)", with a notice. For system
+  tiddlers (`$:/…`, settings, plugins) the last save simply wins.
+- A tiddler is only deleted on the server if nobody has changed it there since.
+- If there is no file on the server yet, it sends the whole wiki once.
 - It uses the upload settings from the Control Panel (see above). Without them it stays
   inactive.
 
@@ -108,13 +111,43 @@ saving still runs into the 413 limit):
 Under *Control Panel → Saving → store.php (Stücke)* you can switch off the plugin, or
 just the sending of changes.
 
+### Upgrading from store.php 2.1 / plugin 1.1
+
+Saving per tiddler needs store.php 2.2 **and** plugin 1.2. Every mix works, but only the
+new pair protects against overwriting. Order:
+
+1. **Replace `store.php` first.** Wikis with the old plugin keep saving exactly as before.
+2. **Then update the plugin in every web wiki**: drag `chunked-upload-plugin.json` into the
+   wiki opened online, import, save, reload. This works online because the old version
+   already saves in pieces.
+3. **Update brausa last** (from 0.24 on it saves per tiddler too).
+
+A new plugin talking to an old store.php notices and saves like plugin 1.1.
+
+### How saving per tiddler works
+
+The wiki file holds one tiddler per line. For every tiddler the plugin remembers a
+checksum of the line it last knew from the server, and sends changed tiddlers together
+with that checksum. Under a lock, store.php reads the current file, replaces a tiddler only
+if its line on the server still has the reported checksum (otherwise it writes a conflict
+copy), and reports whether someone else saved before. Only then does the plugin fetch the
+checksums of all tiddlers (about 30 bytes each) and load the ones that differ. Concurrent
+saves are handled one after the other.
+
+Protocol (all `POST store.php?chunk=…` with header `X-Store-Auth`):
+`state` / `index` / `fetch` (fields `file`, `dir`, `titles`) return the file version
+(sha256), the checksum of each tiddler line (first 16 hex digits of its sha256) and single
+tiddler lines; `begin` with `mode=merge` takes the JSON
+`{"set":[{"title","line","prev"}],"del":[{"title","prev"}],"head"?,"tail"?}`, and `finish`
+returns `before`, `version`, `conflicts` and `kept`.
+
 ## Alternative: the "put" saver (WebDAV-style)
 
 If you open the wiki at `https://your-domain/wiki/store.php?wiki=index.html`,
 TiddlyWiki detects this on its own and saves with PUT. The browser asks for a user name
 and password the first time you save (the ones from `auth.php`). Advantages: no upload
 settings are needed in the wiki, and if the wiki was changed somewhere else in the
-meantime, the server refuses to overwrite it. Backups go to `backups/`.
+meantime, the server refuses to overwrite it (reload then; there is no merging here). Backups go to `backups/`.
 
 ## Backups
 

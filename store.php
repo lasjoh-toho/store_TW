@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * store.php 2.1 – speichert Single-File-TiddlyWikis auf reinen PHP-Webspaces.
+ * store.php 2.2 – speichert Single-File-TiddlyWikis auf reinen PHP-Webspaces.
  *
  * Nachfolger der BidiX store.php 1.6.1 (2007). Läuft mit PHP 8.0 oder neuer (getestet mit 8.3).
  *
@@ -97,7 +97,7 @@ $CONFIG = [
     'timezone'           => 'Europe/Berlin',
 ];
 
-const STORE_VERSION = '2.1.0';
+const STORE_VERSION = '2.2.0';
 
 if (is_file(__DIR__ . '/store-config.php')) {
     $override = require __DIR__ . '/store-config.php';
@@ -318,10 +318,10 @@ function etag_matches(string $ifMatch, string $etag): bool
  * Ersetzt $dest atomar durch $tmp und sichert die alte Fassung vorher.
  * Liefert den Pfad des Backups oder ''.
  */
-function replace_with_backup(string $tmp, string $dest, ?string $backupDir): string
+function replace_with_backup(string $tmp, string $dest, ?string $backupDir, bool $locked = false): string
 {
     $backup = '';
-    $lock = fopen($dest . '.lock', 'c');
+    $lock = $locked ? false : fopen(wiki_lock_path($dest), 'c');
     if ($lock !== false) {
         flock($lock, LOCK_EX);
     }
@@ -355,13 +355,21 @@ function replace_with_backup(string $tmp, string $dest, ?string $backupDir): str
         if ($lock !== false) {
             flock($lock, LOCK_UN);
             fclose($lock);
-            @unlink($dest . '.lock');
         }
         if (is_file($tmp)) {
             @unlink($tmp);
         }
     }
     return $backup;
+}
+
+/**
+ * Sperrdatei eines Wikis (im geschützten Ordner .store-chunks, bleibt liegen:
+ * gelöschte Sperrdateien würden gleichzeitige Speichervorgänge nicht mehr trennen).
+ */
+function wiki_lock_path(string $dest): string
+{
+    return chunk_dir() . DIRECTORY_SEPARATOR . 'lock-' . substr(sha1($dest), 0, 16);
 }
 
 /** Dünnt Backups aus (Logik wie in Version 1.6.1) und begrenzt die Anzahl. */
@@ -763,6 +771,151 @@ function apply_patch(string $tmp, string $dest): void
     }
 }
 
+/** Kurze Prüfsumme einer Tiddler-Zeile (16 Hex-Zeichen von SHA-256), wie im Plugin. */
+function line_hash(string $line): string
+{
+    return substr(hash('sha256', $line), 0, 16);
+}
+
+/** Titel einer Tiddler-Zeile oder null. */
+function line_title(string $line): ?string
+{
+    $t = json_decode($line, true);
+    return is_array($t) && is_string($t['title'] ?? null) ? $t['title'] : null;
+}
+
+/** Stand der Datei auf dem Server (SHA-256 des ganzen Wikis, '' = gibt es nicht). */
+function wiki_version(string $path): string
+{
+    clearstatcache(true, $path);
+    return is_file($path) ? hash_file('sha256', $path) : '';
+}
+
+/**
+ * Speichern pro Tiddler (Modus "merge", ab 2.2): Die Änderungen des Browsers
+ * werden in den AKTUELLEN Stand auf dem Server eingebaut. Was andere inzwischen
+ * gespeichert haben, bleibt erhalten.
+ *
+ *   {"set": [{"title", "line", "prev"}], "del": [{"title", "prev"}], "head"?, "tail"?}
+ *
+ * "prev" ist die Prüfsumme (line_hash) der Zeile, die der Browser vorher kannte
+ * ('' = Tiddler war ihm neu). Hat jemand anders denselben Tiddler inzwischen
+ * geändert, bleibt dessen Fassung stehen und die des Browsers kommt als Kopie
+ * "<Titel> (Konflikt <Zeit>)" dazu. Gelöscht wird nur, was niemand geändert hat.
+ * Schreibt das Ergebnis nach $tmp; muss unter der Sperre des Wikis laufen.
+ */
+function apply_merge(string $tmp, string $dest): array
+{
+    $m = json_decode((string) file_get_contents($tmp), true);
+    if (!is_array($m) || !is_array($m['set'] ?? []) || !is_array($m['del'] ?? [])) {
+        throw new StoreError('Änderungsliste ist ungültig', 422);
+    }
+    clearstatcache(true, $dest);
+    $current = is_file($dest) ? (string) file_get_contents($dest) : '';
+    if ($current === '') {
+        throw new StoreError('Auf dem Server liegt noch kein Wiki – einmal ganz hochladen', 409);
+    }
+    $before = hash('sha256', $current);
+    $parts = split_store($current);
+    unset($current);
+    if ($parts === null) {
+        throw new StoreError('Wiki auf dem Server hat einen unbekannten Aufbau', 409);
+    }
+    [$head, $lines, $tail] = $parts;
+    if (count($lines) === 1 && $lines[0] === '') {
+        $lines = [];
+    }
+    $index = [];
+    foreach ($lines as $i => $line) {
+        $t = line_title($line);
+        if ($t !== null) {
+            $index[$t] = $i;
+        }
+    }
+    $stamp = date('Y-m-d H:i');
+    $conflicts = [];
+    $kept = [];
+    $changed = 0;
+    $copyOf = static function (string $title, string $line) use (&$index, &$lines, $stamp): string {
+        $copy = "$title (Konflikt $stamp)";
+        for ($n = 2; isset($index[$copy]); $n++) {
+            $copy = "$title (Konflikt $stamp, $n)";
+        }
+        $t = json_decode($line, true);
+        $t['title'] = $copy;
+        $lines[] = str_replace('<', '\u003C', (string) json_encode($t, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $index[$copy] = count($lines) - 1;
+        return $copy;
+    };
+    foreach ($m['set'] ?? [] as $s) {
+        $title = is_array($s) ? ($s['title'] ?? null) : null;
+        $line = is_array($s) ? ($s['line'] ?? null) : null;
+        $prev = is_array($s) ? (string) ($s['prev'] ?? '') : '';
+        if (!is_string($title) || !is_string($line) || line_title($line) !== $title) {
+            throw new StoreError('Änderungsliste ist ungültig', 422);
+        }
+        if (isset($index[$title])) {
+            $cur = $lines[$index[$title]];
+            if ($cur === $line) {
+                continue;
+            }
+            if (($prev !== '' && hash_equals(line_hash($cur), $prev)) || str_starts_with($title, '$:/')) {
+                // Unverändert seit dem Stand des Browsers – oder ein System-Tiddler
+                // (Einstellungen, Plugins): da hilft keine Kopie, die neueste Fassung gilt.
+                $lines[$index[$title]] = $line;
+                $changed++;
+            } else {
+                // Inzwischen von jemand anderem geändert (oder neu angelegt).
+                $conflicts[] = ['title' => $title, 'copy' => $copyOf($title, $line)];
+                $changed++;
+            }
+        } else {
+            // Neu – oder auf dem Server inzwischen gelöscht, hier aber bearbeitet: wieder anlegen.
+            $lines[] = $line;
+            $index[$title] = count($lines) - 1;
+            $changed++;
+        }
+    }
+    $drop = [];
+    foreach ($m['del'] ?? [] as $d) {
+        $title = is_array($d) ? ($d['title'] ?? null) : null;
+        if (!is_string($title)) {
+            throw new StoreError('Änderungsliste ist ungültig', 422);
+        }
+        if (!isset($index[$title])) {
+            continue;
+        }
+        if (hash_equals(line_hash($lines[$index[$title]]), (string) ($d['prev'] ?? ''))) {
+            $drop[$index[$title]] = true;
+            $changed++;
+        } else {
+            $kept[] = $title; // inzwischen geändert: bleibt
+        }
+    }
+    if ($drop) {
+        $lines = array_values(array_filter($lines, static fn($i) => !isset($drop[$i]), ARRAY_FILTER_USE_KEY));
+    }
+    foreach (['head', 'tail'] as $k) {
+        if (is_string($m[$k] ?? null) && $m[$k] !== $$k) {
+            $$k = $m[$k];
+            $changed++;
+        }
+    }
+    $out = $head . "\n" . implode(",\n", $lines) . "\n" . $tail;
+    if (file_put_contents($tmp, $out) !== strlen($out)) {
+        throw new StoreError('Temporäre Datei konnte nicht geschrieben werden', 500);
+    }
+    return ['before' => $before, 'conflicts' => $conflicts, 'kept' => $kept, 'changed' => $changed,
+        'head' => line_hash($head), 'tail' => line_hash($tail)];
+}
+
+/** Ziel-Wiki aus den Feldern file/dir einer Anfrage. */
+function chunk_target(bool $create): string
+{
+    $name = safe_filename((string) ($_POST['file'] ?? ''));
+    return safe_dir((string) ($_POST['dir'] ?? ''), $create) . DIRECTORY_SEPARATOR . $name;
+}
+
 /** Lädt die Verwaltungsdaten eines laufenden Uploads. */
 function chunk_meta(string $id, string $user): array
 {
@@ -807,7 +960,7 @@ function handle_chunk(string $action): array
         $total = (int) ($_POST['total'] ?? -1);
         $encoding = (string) ($_POST['encoding'] ?? 'identity');
         $mode = (string) ($_POST['mode'] ?? 'full');
-        if (!in_array($mode, ['full', 'patch'], true)) {
+        if (!in_array($mode, ['full', 'patch', 'merge'], true)) {
             throw new StoreError('Unbekannter Modus');
         }
         if ($total <= 0 || $total > (int) $CONFIG['max_size']) {
@@ -837,6 +990,42 @@ function handle_chunk(string $action): array
         chunk_save_meta($meta);
         touch(chunk_dir() . DIRECTORY_SEPARATOR . $meta['id'] . '.bin');
         return ['ok' => true, 'id' => $meta['id'], 'chunkSize' => chunk_size_limit()];
+    }
+
+    // Stand abfragen (ab 2.2): Version, Prüfsumme jeder Tiddler-Zeile, einzelne Tiddler.
+    if ($action === 'state' || $action === 'index' || $action === 'fetch') {
+        $path = chunk_target(false);
+        $version = wiki_version($path);
+        $out = ['ok' => true, 'version' => $version, 'store' => STORE_VERSION];
+        if ($action === 'state' || $version === '') {
+            return $out;
+        }
+        $parts = split_store((string) file_get_contents($path));
+        if ($parts === null) {
+            throw new StoreError('Wiki auf dem Server hat einen unbekannten Aufbau', 409);
+        }
+        if ($action === 'index') {
+            $out['head'] = line_hash($parts[0]);
+            $out['tail'] = line_hash($parts[2]);
+            $out['tiddlers'] = new stdClass();
+            foreach ($parts[1] as $line) {
+                $t = line_title($line);
+                if ($t !== null) {
+                    $out['tiddlers']->$t = line_hash($line);
+                }
+            }
+            return $out;
+        }
+        $want = json_decode((string) ($_POST['titles'] ?? '[]'), true);
+        $want = is_array($want) ? array_flip(array_filter($want, 'is_string')) : [];
+        $out['lines'] = new stdClass();
+        foreach ($parts[1] as $line) {
+            $t = line_title($line);
+            if ($t !== null && isset($want[$t])) {
+                $out['lines']->$t = $line;
+            }
+        }
+        return $out;
     }
 
     $meta = chunk_meta((string) ($_POST['id'] ?? ''), $user);
@@ -912,27 +1101,56 @@ function handle_chunk(string $action): array
             } elseif (!copy($bin, $tmp)) {
                 throw new StoreError('Temporäre Datei konnte nicht angelegt werden', 500);
             }
-            if (($meta['mode'] ?? 'full') === 'patch') {
+            // Lesen, Einbauen und Ersetzen unter einer Sperre: zwei gleichzeitige
+            // Speichervorgänge kommen nacheinander dran und sehen jeweils den neuesten Stand.
+            $lock = fopen(wiki_lock_path($dest), 'c');
+            if ($lock !== false) {
+                flock($lock, LOCK_EX);
+            }
+            $merged = null;
+            try {
+                $before = wiki_version($dest);
                 try {
-                    apply_patch($tmp, $dest);
+                    if (($meta['mode'] ?? 'full') === 'patch') {
+                        apply_patch($tmp, $dest);
+                    } elseif (($meta['mode'] ?? 'full') === 'merge') {
+                        $merged = apply_merge($tmp, $dest);
+                    }
                 } catch (Throwable $e) {
                     @unlink($tmp);
                     throw $e;
                 }
+                if ($CONFIG['require_tiddlywiki'] && !looks_like_tiddlywiki($tmp)) {
+                    @unlink($tmp);
+                    throw new StoreError('Die Datei sieht nicht wie ein TiddlyWiki aus');
+                }
+                $backupDir = $meta['backup'] !== null ? safe_dir((string) $meta['backup'], true) : null;
+                if ($merged !== null && $merged['changed'] === 0) {
+                    @unlink($tmp); // nichts zu tun: keine neue Fassung, kein Backup
+                    $backup = '';
+                } else {
+                    $backup = replace_with_backup($tmp, $dest, $backupDir, true);
+                }
+                $version = wiki_version($dest);
+            } finally {
+                if ($lock !== false) {
+                    flock($lock, LOCK_UN);
+                    fclose($lock);
+                }
             }
-            if ($CONFIG['require_tiddlywiki'] && !looks_like_tiddlywiki($tmp)) {
-                @unlink($tmp);
-                throw new StoreError('Die Datei sieht nicht wie ein TiddlyWiki aus');
-            }
-            $backupDir = $meta['backup'] !== null ? safe_dir((string) $meta['backup'], true) : null;
-            $backup = replace_with_backup($tmp, $dest, $backupDir);
         } finally {
             chunk_discard($meta['id']);
         }
         return [
-            'ok'      => true,
-            'message' => '0 - File successfully loaded in ' . rel_path($dest),
-            'backup'  => $backup !== '' ? rel_path($backup) : null,
+            'ok'        => true,
+            'message'   => '0 - File successfully loaded in ' . rel_path($dest),
+            'backup'    => $backup !== '' ? rel_path($backup) : null,
+            'before'    => $before,
+            'version'   => $version,
+            'conflicts' => $merged['conflicts'] ?? [],
+            'kept'      => $merged['kept'] ?? [],
+            'head'      => $merged['head'] ?? null,
+            'tail'      => $merged['tail'] ?? null,
         ];
     }
 

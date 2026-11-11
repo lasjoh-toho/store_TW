@@ -1,8 +1,13 @@
 title: $:/plugins/storephp/chunked-upload/readme
 
-Dieses Plugin speichert das Wiki über ''store.php 2.1'' komprimiert und in kleinen Stücken. So klappt das Speichern auch dann, wenn der Provider große Uploads ablehnt („413 Request Entity Too Large“).
+Dieses Plugin speichert das Wiki über ''store.php'' komprimiert und in kleinen Stücken. So klappt das Speichern auch dann, wenn der Provider große Uploads ablehnt („413 Request Entity Too Large“).
 
-Ab dem zweiten Speichern (bzw. schon beim ersten, wenn die Seite direkt vom Server geladen wurde) schickt es nur die geänderten Tiddler. store.php baut sie in die Datei ein und prüft per Prüfsumme, dass das Ergebnis exakt dem Wiki im Browser entspricht. Passt etwas nicht, etwa weil sich Plugins oder der Rahmen der Seite geändert haben, wird automatisch das ganze Wiki geschickt.
+Mit ''store.php 2.2'' oder neuer wird pro Tiddler gespeichert: Das Plugin schickt nur die Tiddler, die hier geändert, neu angelegt oder gelöscht wurden. store.php baut sie in den ''aktuellen'' Stand auf dem Server ein. Was andere inzwischen gespeichert haben, bleibt dabei erhalten und wird anschließend in dieses Wiki übernommen.
+
+* Haben zwei denselben Tiddler gleichzeitig geändert, bleibt die Fassung auf dem Server stehen und deine kommt als Kopie „Titel (Konflikt Datum Uhrzeit)“ daneben. Bei System-Tiddlern (`$:/…`) gilt einfach die zuletzt gespeicherte Fassung.
+* Gelöscht wird auf dem Server nur, was dort seitdem niemand geändert hat.
+
+Mit ''store.php 2.1'' schickt es die geänderten Tiddler gegen den zuletzt gesehenen Stand und, wenn jemand anders dazwischen gespeichert hat, das ganze Wiki (das überschreibt dessen Änderungen). Deshalb zuerst store.php 2.2 einspielen.
 
 !! Einrichtung
 

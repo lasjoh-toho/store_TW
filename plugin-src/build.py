@@ -12,7 +12,7 @@ tiddlers = {'$:/plugins/storephp/chunked-upload/saver.js': {
 for fn in ['readme.tid', 'settings.tid']:
     d = tid(fn); tiddlers[d['title']] = d
 plugin = {'title': '$:/plugins/storephp/chunked-upload', 'name': 'Chunked Upload',
-          'description': 'Speichern über store.php in Stücken und nur mit Änderungen',
-          'version': '1.1.0', 'core-version': '>=5.2.0', 'plugin-type': 'plugin',
+          'description': 'Speichern über store.php: in Stücken, pro Tiddler, ohne Änderungen anderer zu überschreiben',
+          'version': '1.2.0', 'core-version': '>=5.2.0', 'plugin-type': 'plugin',
           'type': 'application/json', 'list': 'readme', 'text': json.dumps({'tiddlers': tiddlers})}
 json.dump([plugin], open(os.path.join(here, '..', 'chunked-upload-plugin.json'), 'w', encoding='utf8'), ensure_ascii=False)

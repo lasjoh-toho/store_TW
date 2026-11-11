@@ -1,4 +1,4 @@
-# store.php 2.1 – Installationsanleitung
+# store.php 2.2 – Installationsanleitung
 
 Speichert Single-File-TiddlyWikis auf Webspace, der nur PHP kann (kein Node.js).
 Läuft mit PHP 8.0 oder neuer (bitte eine gegen php2shell abgesicherte Version, siehe unten),
@@ -48,7 +48,7 @@ Quellen: [Hostinger: php2shell – what it is](https://www.hostinger.com/blog/wh
 | `auth.example.php` | Vorlage für `auth.php` (Benutzer + Passwort-Hashes) |
 | `htaccess.txt` | Vorlage für `.htaccess` (Apache) |
 | `user.ini.txt` | Vorlage für `.user.ini` (PHP-Upload-Grenzen anheben) |
-| `chunked-upload-plugin.json` | TiddlyWiki-Plugin: Speichern in Stücken und nur mit Änderungen |
+| `chunked-upload-plugin.json` | TiddlyWiki-Plugin: Speichern in Stücken und pro Tiddler, ohne Änderungen anderer zu überschreiben |
 | `plugin-src/` | Quelltext des Plugins (`python3 plugin-src/build.py` baut die JSON neu) |
 
 ## Installation
@@ -86,12 +86,16 @@ ab 8 oder 10 MB, und das lässt sich per `.htaccess` nicht ändern. Das Plugin u
 
 - Es komprimiert das Wiki und schickt es in Stücken von höchstens 1 MB. Lehnt der
   Server ein Stück ab, nimmt es automatisch kleinere.
-- Ab dem zweiten Speichern schickt es **nur die geänderten Tiddler** (meist wenige KB).
-  store.php baut sie in die Datei ein und speichert nur, wenn das Ergebnis per Prüfsumme
-  Byte für Byte dem Wiki im Browser entspricht. Hat sich der Rahmen der Seite geändert
-  (z. B. Plugin-Update) oder wurde die Datei auf dem Server inzwischen anders geändert,
-  schickt es automatisch das ganze Wiki. Wurde die Seite direkt vom Server geladen,
-  klappt das schon beim ersten Speichern.
+- Es schickt **nur die Tiddler, die du geändert, angelegt oder gelöscht hast** (meist
+  wenige KB). store.php baut sie in den *aktuellen* Stand auf dem Server ein. Was andere
+  (ein zweiter Browser, ein zweites Gerät, brausa) inzwischen gespeichert haben, bleibt
+  erhalten und wird danach automatisch in dein Wiki übernommen.
+- Haben zwei denselben Tiddler gleichzeitig geändert, bleibt die Fassung auf dem Server
+  stehen und deine kommt als Kopie „Titel (Konflikt Datum Uhrzeit)“ daneben. Du siehst
+  dazu einen Hinweis. Bei System-Tiddlern (`$:/…`, Einstellungen, Plugins) gilt einfach
+  die zuletzt gespeicherte Fassung.
+- Gelöscht wird auf dem Server nur, was dort seitdem niemand geändert hat.
+- Liegt auf dem Server noch keine Datei, schickt es einmal das ganze Wiki.
 - Es nutzt die Upload-Einstellungen aus dem Kontrollpanel (siehe oben). Ohne diese ist
   es inaktiv.
 
@@ -108,13 +112,39 @@ Speichern bis dahin noch an der 413-Grenze scheitert):
 Unter *Kontrollpanel → Speichern → store.php (Stücke)* lässt sich das Plugin oder nur
 das Senden der Änderungen abschalten.
 
+### Umstieg von store.php 2.1 / Plugin 1.1
+
+Das Speichern pro Tiddler braucht store.php 2.2 **und** Plugin 1.2. Jede Mischung
+funktioniert, aber nur die neue Kombination schützt vor dem Überschreiben. Reihenfolge:
+
+1. **Zuerst `store.php` ersetzen.** Wikis mit dem alten Plugin speichern damit genau wie
+   bisher.
+2. **Dann das Plugin in jedem Web-Wiki aktualisieren**: `chunked-upload-plugin.json` ins
+   online geöffnete Wiki ziehen, importieren, speichern, Seite neu laden. Das klappt
+   direkt online, weil schon die alte Fassung in Stücken speichert.
+3. **Zuletzt brausa aktualisieren** (ab 0.24 speichert es ebenfalls pro Tiddler).
+
+Ein neues Plugin an einer alten store.php merkt das und speichert wie Plugin 1.1.
+
+### Wie das Speichern pro Tiddler funktioniert
+
+In der Wiki-Datei steht jeder Tiddler auf einer eigenen Zeile. Das Plugin merkt sich zu
+jedem Tiddler eine Prüfsumme der Zeile, die es zuletzt vom Server kannte, und schickt
+geänderte Tiddler zusammen mit dieser Prüfsumme. store.php liest unter einer Sperre die
+aktuelle Datei, ersetzt einen Tiddler nur, wenn dessen Zeile auf dem Server noch die
+gemeldete Prüfsumme hat (sonst Konfliktkopie), und meldet zurück, ob vorher jemand anders
+gespeichert hat. Nur dann fragt das Plugin die Prüfsummen aller Tiddler ab (rund 30 Byte
+je Tiddler) und lädt die abweichenden. Gleichzeitige Speichervorgänge kommen nacheinander
+dran.
+
 ## Alternative: Saver „put“ (WebDAV-artig)
 
 Wird das Wiki über `https://deine-domain/wiki/store.php?wiki=index.html` geöffnet,
 erkennt TiddlyWiki das automatisch und speichert per PUT. Der Browser fragt beim ersten
 Speichern nach Benutzername und Passwort (die aus `auth.php`). Vorteile: keine
 Upload-Einstellungen im Wiki nötig, und wenn das Wiki inzwischen an anderer Stelle
-geändert wurde, verweigert der Server das Überschreiben. Backups landen in `backups/`.
+geändert wurde, verweigert der Server das Überschreiben (dann neu laden; zusammengeführt
+wird hier nicht). Backups landen in `backups/`.
 
 ## Backups
 
