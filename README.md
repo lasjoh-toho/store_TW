@@ -120,7 +120,7 @@ new pair protects against overwriting. Order:
 2. **Then update the plugin in every web wiki**: drag `chunked-upload-plugin.json` into the
    wiki opened online, import, save, reload. This works online because the old version
    already saves in pieces.
-3. **Update brausa last** (from 0.24 on it saves per tiddler too).
+3. **Update brausa last** (from 0.25 on it saves per tiddler too).
 
 A new plugin talking to an old store.php notices and saves like plugin 1.1.
 

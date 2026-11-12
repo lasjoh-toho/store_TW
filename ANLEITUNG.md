@@ -122,7 +122,7 @@ funktioniert, aber nur die neue Kombination schützt vor dem Überschreiben. Rei
 2. **Dann das Plugin in jedem Web-Wiki aktualisieren**: `chunked-upload-plugin.json` ins
    online geöffnete Wiki ziehen, importieren, speichern, Seite neu laden. Das klappt
    direkt online, weil schon die alte Fassung in Stücken speichert.
-3. **Zuletzt brausa aktualisieren** (ab 0.24 speichert es ebenfalls pro Tiddler).
+3. **Zuletzt brausa aktualisieren** (ab 0.25 speichert es ebenfalls pro Tiddler).
 
 Ein neues Plugin an einer alten store.php merkt das und speichert wie Plugin 1.1.
 
